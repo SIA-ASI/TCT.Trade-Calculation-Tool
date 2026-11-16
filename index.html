@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>外贸报价利润计算器</title>
+<style>
+:root{--bg:#eaf0f4;--pn:#fff;--ink:#0f2133;--mut:#566879;--rule:#c5d2dc;--acc:#0b5d73;--on:#fff;--ok:#12804f;--bad:#b3261e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b141c;--pn:#111e29;--ink:#e6eef5;--mut:#92a4b4;--rule:#26394a;--acc:#5cc3dd;--on:#06202a;--ok:#4cd49a;--bad:#ff8a80;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0b141c;--pn:#111e29;--ink:#e6eef5;--mut:#92a4b4;--rule:#26394a;--acc:#5cc3dd;--on:#06202a;--ok:#4cd49a;--bad:#ff8a80;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;font-variant-numeric:tabular-nums}
+main{max-width:680px;margin:0 auto;padding:18px 16px 40px}
+h1{font-size:21px;line-height:1.25;margin:0 0 4px;font-weight:700}
+h2{font-size:15px;margin:0 0 10px}
+section{background:var(--pn);border-top:3px solid var(--ink);padding:12px 14px 16px;margin-top:16px}
+.sub,small{color:var(--mut);font-size:13px}
+.sub{margin:6px 0 0}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.w{grid-column:1/-1}
+label{display:block;font-size:12px;color:var(--mut)}
+input,select,textarea{width:100%;margin-top:3px;padding:9px 10px;font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:4px}
+textarea{min-height:240px;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}
+button{font:inherit;font-weight:600;width:100%;margin-top:10px;padding:11px 14px;border:0;border-radius:4px;background:var(--acc);color:var(--on)}
+button.alt{background:none;color:var(--acc);border:1px solid var(--acc)}
+.big{font-size:38px;font-weight:700;line-height:1.1;margin:2px 0 8px}
+.k{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--rule)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+td,th{padding:6px 0;text-align:right;border-bottom:1px solid var(--rule);font-weight:400}
+td:first-child,th:first-child{text-align:left}
+th{color:var(--mut);font-size:12px}
+@media(min-width:560px){.g{grid-template-columns:repeat(3,1fr)}.w{grid-column:span 3}}
+</style>
+</head>
+<body>
+<main>
+<h1>外贸报价利润计算器</h1>
+<p class="sub">含退税、运费、保险、佣金。先算清利润再报价，再生成可直接发给客户的英文报价单。</p>
+
+<section><h2>① 成本与参数</h2><div class="g" id="inputs"></div></section>
+
+<section><h2>② 报价结果</h2>
+<small id="termLbl"></small>
+<div class="big" id="price">—</div>
+<div id="rows"></div>
+<table id="cmp"></table>
+<p class="sub">公式：退税 = 含税价 ÷ (1 + 增值税率) × 退税率；利润率按售价计；CIF 保险按 110% 投保额。汇率和运费请按当天报价填写。</p></section>
+
+<section><h2>③ 客户还价，还能赚多少？</h2>
+<label>客户还价 (USD/件)<input id="offer" type="number" inputmode="decimal" step="any" placeholder="例如 4.0"></label>
+<div id="offerOut"></div></section>
+
+<section><h2>④ 英文报价单</h2>
+<div class="g" id="qf"></div>
+<button id="gen">生成报价单</button>
+<textarea id="out" readonly placeholder="点击“生成报价单”，这里会出现可直接发给客户的英文报价。"></textarea>
+<button class="alt" id="copy">复制文本</button>
+<p class="sub" id="gate"></p></section>
+
+<p class="sub">所有计算都在你的浏览器本地完成，成本数据不会上传。</p>
+</main>
+<script>
+const CONFIG={payLink:"",codes:["DEMO-PRO"],free:3,hint:"演示激活码 DEMO-PRO，上线前请在 CONFIG.codes 里替换。"};
+const $=i=>document.getElementById(i);
+const F=[["cost","采购单价，含税 (RMB)",28],["vat","增值税率 %",13],["rebate","出口退税率 %",13],["inland","国内杂费/件 (RMB)",0.8],["qty","订单数量 (件)",3000],["pcs","每箱件数",40],["cbm","每箱体积 (CBM)",0.09],["frt","海运费 (USD/CBM)",90],["ins","保险费率 %",0.3],["fx","汇率 USD/CNY",7.1],["bank","收汇手续费 %",0.3],["comm","佣金 %",0],["margin","目标利润率 % (占售价)",15]];
+const Q=[["seller","Seller","Your Company Co., Ltd.",1],["buyer","Buyer","Buyer Company LLC",1],["item","Item and spec","Stainless steel water bottle, 500ml",1],["pol","Port of loading","Ningbo, China"],["pod","Destination port","Los Angeles, USA"],["lead","Lead time","25–30 days after deposit"],["valid","Valid (days)","15"]];
+$("inputs").innerHTML='<label>贸易术语<select id="term"><option>FOB</option><option>CFR</option><option>CIF</option></select></label>'+F.map(([i,l,v])=>`<label>${l}<input id="${i}" type="number" inputmode="decimal" step="any" value="${v}"></label>`).join("");
+$("qf").innerHTML=Q.map(([i,l,v,w])=>`<label class="${w?"w":""}">${l}<input id="${i}" value="${v}"></label>`).join("")+'<label class="w">Payment terms<select id="pay"><option>30% T/T deposit, 70% balance before shipment</option><option>100% T/T in advance</option><option>L/C at sight</option></select></label>';
+
+const n=i=>{const v=parseFloat($(i).value);return isFinite(v)?v:0};
+const f=(x,d=2)=>isFinite(x)?x.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d}):"—";
+const ymd=()=>{const d=new Date(),p=x=>String(x).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())};
+
+function M(){
+  const cost=n("cost"),fx=n("fx"),pcs=Math.max(n("pcs"),1);
+  const refund=cost/(1+n("vat")/100)*n("rebate")/100;
+  const rmb=cost-refund+n("inland");
+  return{refund,rmb,base:fx>0?rmb/fx:NaN,fu:n("cbm")/pcs*n("frt"),fx,pcs,qty:n("qty"),bank:n("bank")/100,comm:n("comm")/100,ins:n("ins")/100,mg:n("margin")/100};
+}
+const pc=(m,t)=>m.bank+m.comm+(t==="CIF"?1.1*m.ins:0);
+const cu=(m,t)=>m.base+(t==="FOB"?0:m.fu);
+const px=(m,t,g=m.mg)=>{const d=1-pc(m,t)-g;return d>0?cu(m,t)/d:NaN};
+const pf=(m,t,p)=>p*(1-pc(m,t))-cu(m,t);
+
+function render(){
+  const m=M(),t=$("term").value,p=px(m,t),q=m.qty,g=pf(m,t,p);
+  $("termLbl").textContent=`${t} 建议单价 (USD/件)，目标利润率 ${f(m.mg*100,1)}%`;
+  $("price").textContent=f(p,3);
+  const rows=[["退税 (RMB/件)",f(m.refund)],["净成本 (RMB/件)",f(m.rmb)],["海运费 (USD/件)",f(m.fu,4)],["保本价 (USD/件)",f(cu(m,t)/(1-pc(m,t)),3)],["订单总额 (USD)",f(p*q)],["总利润 (USD)",f(g*q)],["总利润 (RMB)",f(g*q*m.fx)]];
+  $("rows").innerHTML=rows.map(([a,b])=>`<div class="k"><span>${a}</span><b>${b}</b></div>`).join("");
+  $("cmp").innerHTML="<tr><th>术语</th><th>单价 (USD)</th><th>订单总额 (USD)</th></tr>"+["FOB","CFR","CIF"].map(x=>{const y=px(m,x);return`<tr><td>${x}</td><td>${f(y,3)}</td><td>${f(y*q,0)}</td></tr>`}).join("");
+  const o=parseFloat($("offer").value);
+  if(!(o>0)){$("offerOut").innerHTML="<small>输入对方的还价，马上看到利润，以及会不会亏本。</small>";return}
+  const og=pf(m,t,o),r=og/o,c=og<0?"bad":r<m.mg?"":"ok";
+  $("offerOut").innerHTML=`<div class="k"><span>单件利润</span><b class="${c}">${f(og,3)} USD</b></div><div class="k"><span>利润率</span><b class="${c}">${f(r*100,1)}%</b></div><div class="k"><span>订单总利润</span><b class="${c}">${f(og*q)} USD</b></div><small>${og<0?"低于成本，这个价格会亏钱。":r<m.mg?"低于目标利润率，可以用付款条件或交期去换。":"达到目标利润率，可以接。"}</small>`;
+}
+
+function quote(){
+  const m=M(),t=$("term").value,p=Number(px(m,t).toFixed(3));
+  if(!(p>0))return null;
+  const q=m.qty,ctn=Math.ceil(q/m.pcs),d=ymd(),pl=$("pol").value;
+  return["PROFORMA INVOICE / QUOTATION",`No.: PI${d.replace(/-/g,"")}   Date: ${d}   Valid: ${$("valid").value} days`,"",`Seller: ${$("seller").value}`,`Buyer: ${$("buyer").value}`,"",`Item: ${$("item").value}`,`Terms: ${t} ${t==="FOB"?pl:$("pod").value}`,`Unit price: USD ${p.toFixed(3)} / pc`,`Quantity: ${q.toLocaleString("en-US")} pcs`,`Total amount: USD ${f(p*q)}`,"",`Packing: ${m.pcs} pcs/carton, ${ctn} cartons, approx. ${f(ctn*n("cbm"),1)} CBM`,`Port of loading: ${pl}`,`Payment: ${$("pay").value}`,`Lead time: ${$("lead").value}`,"",`This quotation is valid for ${$("valid").value} days from the date above.`,"","Best regards,",$("seller").value].join("\n");
+}
+
+const st={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const pro=()=>st.get("pro")==="1";
+const used=()=>+(st.get("u:"+ymd())||0);
+function gateUI(){
+  $("gate").innerHTML=pro()?"已解锁，可无限生成。":`今日免费生成 ${Math.max(CONFIG.free-used(),0)}/${CONFIG.free} 次。${CONFIG.payLink?`<a href="${CONFIG.payLink}" target="_blank" rel="noopener">购买激活码</a>`:CONFIG.hint}<br><input id="code" placeholder="激活码" style="width:62%"> <button class="alt" id="act" style="width:auto;margin:0">激活</button>`;
+}
+$("gate").onclick=e=>{
+  if(e.target.id!=="act")return;
+  const c=$("code").value.trim().toUpperCase();
+  if(CONFIG.codes.some(x=>x.toUpperCase()===c)){st.set("pro","1");gateUI()}
+  else{$("code").value="";$("code").placeholder="激活码无效，请重试"}
+};
+$("gen").onclick=()=>{
+  if(!pro()&&used()>=CONFIG.free){$("out").value="今日免费次数已用完。购买激活码后可无限生成。";gateUI();return}
+  const t=quote();
+  if(!t){$("out").value="请先填好成本参数，并保证目标利润率合理。";return}
+  $("out").value=t;
+  if(!pro())st.set("u:"+ymd(),used()+1);
+  gateUI();
+};
+$("copy").onclick=async()=>{
+  const o=$("out"),b=$("copy");o.select();
+  try{await navigator.clipboard.writeText(o.value);b.textContent="已复制"}
+  catch(e){try{document.execCommand("copy")}catch(_){}b.textContent="已选中，可长按复制"}
+  setTimeout(()=>b.textContent="复制文本",1800);
+};
+document.addEventListener("input",render);
+gateUI();render();
+</script>
+</body>
+</html>
